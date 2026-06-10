@@ -122,3 +122,26 @@ html, body, #root, .min-h-screen {
     padding: 0 !important;
     background-color: #f8fafc !important; /* Đảm bảo nền sáng toàn trang, không bị đen */
 }
+
+/* Định dạng chiều rộng của thanh cuộn */
+::-webkit-scrollbar {
+  width: 8px; /* Độ rộng thanh cuộn dọc */
+  height: 8px; /* Độ rộng thanh cuộn ngang */
+}
+
+/* Định dạng phần nền của thanh cuộn (Track) */
+::-webkit-scrollbar-track {
+  background: #f1f1f1; 
+  border-radius: 4px;
+}
+ 
+/* Định dạng cục kéo (Thumb) */
+::-webkit-scrollbar-thumb {
+  background: #c1c1c1; /* Màu xám nhạt như Hình 1 */
+  border-radius: 4px;
+}
+
+/* Hiệu ứng khi di chuột vào cục kéo */
+::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8; 
+}
