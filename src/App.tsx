@@ -130,7 +130,7 @@ const generateWorkbookData = (selectedWarehouse, currentDisplayedRecords, detail
   window.XLSX.utils.book_append_sheet(workbook, wsUnscanned, "DanhSach_ChuaScan");
 
   if (!workbook.Workbook) workbook.Workbook = {};
-  workbook.Workbook.Sheets = [{ Hidden: 1 }, { Hidden: 0 }, { Hidden: 0 }];
+  workbook.Workbook.Sheets = [{ Hidden: 0 }, { Hidden: 0 }, { Hidden: 0 }];
 
   return workbook;
 };
@@ -943,6 +943,9 @@ export default function App() {
 
     const wsUnscannedData = globalDetailedList.filter(r => !r.isScanned).map(record => ({ "Trạng thái": "Chưa Scan", "Cột SP": String(record["SP"] || ""), "SC Code": String(record["SC Code"] || record["SC code"] || ''), "Warehouse Name": String(record["Warehouse Name"] || ""), "Số RO": String(record["After-sales work order No."] || ""), "BH/DV": String(record["Repair Type"] || ""), "Mã LK": String(record["Defective material code"] || ""), "Product Name": String(record["Product Name"] || ""), "Model": String(record["Product Model"] || record["Model"] || ''), "Type": String(record["Type"] || ""), "Slg": String(record["Consumed quantity"] || record["Consumed"] || ''), "Remark": String(getRemark(record)) }));
     window.XLSX.utils.book_append_sheet(workbook, window.XLSX.utils.json_to_sheet(wsUnscannedData), "DanhSach_ChuaScan_TatCa");
+
+    if (!workbook.Workbook) workbook.Workbook = {};
+    workbook.Workbook.Sheets = [{ Hidden: 1 }, { Hidden: 1 }, { Hidden: 0 }, { Hidden: 0 }];
 
     window.XLSX.writeFile(workbook, `BaoCao_ScanLK_TongHop_${new Date().toISOString().slice(0, 10).split('-').join('')}.xlsx`);
     showToast("Đã tải xuống file báo cáo TỔNG HỢP thành công.", "success");
