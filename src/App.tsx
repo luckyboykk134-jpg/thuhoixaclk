@@ -100,7 +100,7 @@ const generateWorkbookData = (selectedWarehouse, currentDisplayedRecords, detail
     "Warehouse Name": String(record.ttbh), 
     "Số RO": String(record.soRO), 
     "BH/DV": String(record.bhDv), 
-    "Mã LK": String(record.maLK), 
+    "Mã LK": record.maLK, 
     "Product Name": String(record.tenLK), 
     "Model": String(record.model),
     "Type": String(record.phanLoai), 
@@ -130,7 +130,7 @@ const generateWorkbookData = (selectedWarehouse, currentDisplayedRecords, detail
   window.XLSX.utils.book_append_sheet(workbook, wsUnscanned, "DanhSach_ChuaScan");
 
   if (!workbook.Workbook) workbook.Workbook = {};
-  workbook.Workbook.Sheets = [{ Hidden: 0 }, { Hidden: 0 }, { Hidden: 0 }];
+  workbook.Workbook.Sheets = [{ Hidden: 1 }, { Hidden: 0 }, { Hidden: 0 }];
 
   return workbook;
 };
@@ -150,7 +150,8 @@ export default function App() {
   const [whSearchQuery, setWhSearchQuery] = useState('');
   const whDropdownRef = useRef(null);
 
-  const gasUrl = 'https://script.google.com/macros/s/AKfycbyo8B2gUNmdLgcXx5YHrUmcUdRy-5X9sdr8voVKWCcqS2FiIFgNkBwHK9d4x7ozKyFH/exec';
+  // Cấu hình URL Proxy theo yêu cầu của hệ thống
+  const gasUrl = '/api/proxy-gas';
   const [isUploading, setIsUploading] = useState(false);
 
   const [showPasswordModal, setShowPasswordModal] = useState(false);
@@ -187,7 +188,6 @@ export default function App() {
   const secondInputRef = useRef(null);
   const oowScanInputRef = useRef(null);
 
-  // --- ĐỊNH NGHĨA HÀM showToast ĐỂ KHẮC PHỤC LỖI REFERENCEERROR ---
   const showToast = useCallback((message, type = 'success') => {
     setToast({ message, type });
     setTimeout(() => {
@@ -439,7 +439,6 @@ export default function App() {
     }
   }, [showToast]);
 
-  // HÀM TẢI LÊN DỮ LIỆU TỪ MÁY (LOCAL) VỚI BỘ LỌC AN TOÀN
   const handleLocalDataUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -458,7 +457,6 @@ export default function App() {
           return;
         }
 
-        // BỘ LỌC AN TOÀN: Kiểm tra cấu trúc template
         const firstRow = rawJsonData[0];
         const requiredColumns = ["SP", "Warehouse Name", "Defective material code"];
         const missingColumns = requiredColumns.filter(col => !(col in firstRow));
@@ -495,7 +493,7 @@ export default function App() {
       } catch (error) {
         showToast("Lỗi khi đọc file Excel!", "error");
       } finally {
-        e.target.value = null; // Khởi tạo lại input để có thể tải lên cùng 1 file nhiều lần
+        e.target.value = null; 
       }
     };
     reader.readAsArrayBuffer(file);
@@ -946,9 +944,6 @@ export default function App() {
     const wsUnscannedData = globalDetailedList.filter(r => !r.isScanned).map(record => ({ "Trạng thái": "Chưa Scan", "Cột SP": String(record["SP"] || ""), "SC Code": String(record["SC Code"] || record["SC code"] || ''), "Warehouse Name": String(record["Warehouse Name"] || ""), "Số RO": String(record["After-sales work order No."] || ""), "BH/DV": String(record["Repair Type"] || ""), "Mã LK": String(record["Defective material code"] || ""), "Product Name": String(record["Product Name"] || ""), "Model": String(record["Product Model"] || record["Model"] || ''), "Type": String(record["Type"] || ""), "Slg": String(record["Consumed quantity"] || record["Consumed"] || ''), "Remark": String(getRemark(record)) }));
     window.XLSX.utils.book_append_sheet(workbook, window.XLSX.utils.json_to_sheet(wsUnscannedData), "DanhSach_ChuaScan_TatCa");
 
-    if (!workbook.Workbook) workbook.Workbook = {};
-    workbook.Workbook.Sheets = [{ Hidden: 1 }, { Hidden: 1 }, { Hidden: 0 }, { Hidden: 0 }];
-
     window.XLSX.writeFile(workbook, `BaoCao_ScanLK_TongHop_${new Date().toISOString().slice(0, 10).split('-').join('')}.xlsx`);
     showToast("Đã tải xuống file báo cáo TỔNG HỢP thành công.", "success");
   }, [excelData, scannedRecords, warehouses, showToast]);
@@ -1208,7 +1203,7 @@ export default function App() {
               <div className="flex flex-col items-start gap-1">
                 <span className="text-sm text-gray-500 italic font-medium">Hệ thống sẽ mở khóa quét mã tiếp theo khi hoàn tất.</span>
                 {!showOverrideInput ? (
-                  <button onClick={() => setShowOverrideInput(true)} className="text-xs text-gray-400 hover:text-blue-600 font-semibold underline decoration-dotted underline-offset-2 transition-colors cursor-pointer">Mở khóa vượt cấp</button>
+                  <button onClick={() => setShowOverrideInput(true)} className="text-xs text-gray-400 hover:text-blue-600 font-semibold underline decoration-dotted underline-offset-2 transition-colors">Mở khóa vượt cấp</button>
                 ) : (
                   <div className="flex items-center gap-2 mt-1">
                     <input type="password" value={overridePassword} onChange={(e) => setOverridePassword(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleOverrideSubmit(); }} placeholder="Mã..." className="w-28 border rounded-lg px-2 py-1 text-sm bg-white" autoFocus />
@@ -1282,17 +1277,12 @@ export default function App() {
             </span>
           ) : (
             <>
-              {/* NÚT TỔNG DỮ LIỆU - TẢI FILE TỪ MÁY */}
               <label className="bg-gray-100 text-gray-600 px-4 py-2 rounded-xl text-sm border border-gray-200 flex items-center font-bold hover:bg-blue-50 hover:text-blue-700 hover:border-blue-300 transition-colors cursor-pointer active:scale-95" title="Bấm để tải file dữ liệu nội bộ (Local)">
                 Tổng dữ liệu: <strong className="text-gray-900 ml-1.5 mr-1.5">{Number(excelData.length)}</strong> dòng
                 <Upload className="w-4 h-4 ml-1 text-blue-500" />
                 <input type="file" accept=".xlsx, .xls" onChange={handleLocalDataUpload} className="hidden" />
               </label>
-
-              {/* NÚT LÀM MỚI DỮ LIỆU TỪ GOOGLE SHEETS */}
-              <button onClick={() => fetchGoogleSheetData(false)} className="bg-white border border-gray-300 text-gray-700 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-300 px-4 py-2 rounded-xl text-sm font-bold shadow-sm transition-colors flex items-center cursor-pointer active:scale-95" title="Tải lại dữ liệu mới nhất từ Google Sheets">
-                <RefreshCw className="w-4 h-4 mr-2" /> Làm mới dữ liệu
-              </button>
+              <button onClick={() => fetchGoogleSheetData(false)} className="bg-white border border-gray-300 text-gray-700 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-300 px-4 py-2 rounded-xl text-sm font-bold shadow-sm transition-colors flex items-center cursor-pointer active:scale-95" title="Tải lại dữ liệu mới nhất từ Google Sheets"><RefreshCw className="w-4 h-4 mr-2" /> Làm mới dữ liệu</button>
             </>
           )}
         </div>
@@ -1387,7 +1377,7 @@ export default function App() {
                 <button onClick={handleExportExcel} disabled={hasConflictLock || hasErrorLock} className={`text-sm font-bold py-2.5 rounded-lg flex items-center justify-center border-2 ${hasConflictLock || hasErrorLock ? 'text-gray-400 cursor-not-allowed' : 'bg-white border-emerald-300 text-emerald-700 active:scale-95'}`}><Download className="w-4 h-4 mr-2" /> Tải TTBH</button>
                 <button onClick={handleExportAllExcelClick} className="text-sm font-bold bg-white border-2 border-blue-300 text-blue-700 py-2.5 rounded-lg flex items-center justify-center active:scale-95"><Download className="w-4 h-4 mr-2" /> Tải TẤT CẢ</button>
               </div>
-              <button onClick={handleUploadToDrive} disabled={isUploading || hasConflictLock || hasErrorLock} className="text-sm font-black bg-emerald-600 text-white border-2 border-emerald-700 py-3 rounded-xl flex items-xl justify-center uppercase tracking-wide shadow-md active:scale-95 disabled:active:scale-100"><UploadCloud className="w-5 h-5 mr-2" /> Đẩy báo cáo lên Drive</button>
+              <button onClick={handleUploadToDrive} disabled={isUploading || hasConflictLock || hasErrorLock} className="text-sm font-black bg-emerald-600 text-white border-2 border-emerald-700 py-3 rounded-xl flex items-center justify-center uppercase tracking-wide shadow-md active:scale-95 disabled:active:scale-100"><UploadCloud className="w-5 h-5 mr-2" /> Đẩy báo cáo lên Drive</button>
             </div>
           </div>
         </div>
