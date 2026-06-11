@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Search, CheckCircle, XCircle, AlertTriangle, FileSpreadsheet, Trash2, Settings, BarChart2, ScanLine, Ban, ClipboardList, X, Download, Save, UploadCloud, Loader2, ExternalLink, RefreshCw } from 'lucide-react';
+import { Search, CheckCircle, XCircle, AlertTriangle, FileSpreadsheet, Trash2, Settings, BarChart2, ScanLine, Ban, ClipboardList, X, Download, Save, UploadCloud, Loader2, ExternalLink, RefreshCw, Upload } from 'lucide-react';
 
 // ----------------------------------------------------------------------
 // HELPER FUNCTIONS (Pure Functions)
@@ -59,7 +59,7 @@ const generateWorkbookData = (selectedWarehouse, currentDisplayedRecords, detail
 
   const scannedKMH_SPs = new Set();
   currentDisplayedRecords.forEach(record => {
-      if ((record.status === "Khớp, Trả Xác LK về" || record.status === "Không xác LK") && String(record.remark).includes("KMH")) {
+      if ((String(record.status) === "Khớp, Trả Xác LK về" || String(record.status) === "Không xác LK") && String(record.remark).includes("KMH")) {
           scannedKMH_SPs.add(String(record.sp || '').trim().toUpperCase());
       }
   });
@@ -130,7 +130,7 @@ const generateWorkbookData = (selectedWarehouse, currentDisplayedRecords, detail
   window.XLSX.utils.book_append_sheet(workbook, wsUnscanned, "DanhSach_ChuaScan");
 
   if (!workbook.Workbook) workbook.Workbook = {};
-  workbook.Workbook.Sheets = [{ Hidden: 1 }, { Hidden: 0 }, { Hidden: 0 }];
+  workbook.Workbook.Sheets = [{ Hidden: 0 }, { Hidden: 0 }, { Hidden: 0 }];
 
   return workbook;
 };
@@ -186,6 +186,14 @@ export default function App() {
   const mainInputRef = useRef(null);
   const secondInputRef = useRef(null);
   const oowScanInputRef = useRef(null);
+
+  // --- ĐỊNH NGHĨA HÀM showToast ĐỂ KHẮC PHỤC LỖI REFERENCEERROR ---
+  const showToast = useCallback((message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => {
+      setToast(null);
+    }, 3000);
+  }, []);
 
   const hasErrorLock = useMemo(() => {
     return scannedRecords.some(r => String(r.status) !== "Khớp, Trả Xác LK về" && String(r.status) !== "Không xác LK");
@@ -249,7 +257,7 @@ export default function App() {
     if (!selectedWarehouse || excelData.length === 0) return [];
     
     const scannedSPs = scannedRecords
-      .filter(r => (String(r.status) === "Khớp, Trả Xác LK về" || String(r.status) === "Không xác LK") && String(r.ttbh) === selectedWarehouse)
+      .filter(r => (String(r.status) === "Khớp, Trả Xác LK về" || String(r.status) === "Không xác LK") && r.ttbh === selectedWarehouse)
       .map(r => String(r.sp || r.rawScan).split('_').join('').split(' ').join('').toUpperCase());
       
     const result = excelData
@@ -367,11 +375,6 @@ export default function App() {
     return { totals, scanned };
   }, [excelData, selectedWarehouse, currentDisplayedRecords]);
 
-  const showToast = useCallback((message, type = 'info') => {
-    setToast({ message: String(message), type });
-    setTimeout(() => setToast(null), 4000);
-  }, []);
-
   const fetchGoogleSheetData = useCallback(async (isBackgroundUpdate = false) => {
     if (!isBackgroundUpdate) setIsLoadingData(true);
     await new Promise(resolve => setTimeout(resolve, 50)); 
@@ -435,6 +438,68 @@ export default function App() {
       if (!isBackgroundUpdate) setIsLoadingData(false);
     }
   }, [showToast]);
+
+  // HÀM TẢI LÊN DỮ LIỆU TỪ MÁY (LOCAL) VỚI BỘ LỌC AN TOÀN
+  const handleLocalDataUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const data = new Uint8Array(evt.target.result);
+        const workbook = window.XLSX.read(data, { type: 'array' });
+        const sheetName = workbook.SheetNames.includes("DataXacLK") ? "DataXacLK" : workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const rawJsonData = window.XLSX.utils.sheet_to_json(worksheet, { defval: "" });
+
+        if (rawJsonData.length === 0) {
+          showToast("File tải lên không có dữ liệu!", "error");
+          return;
+        }
+
+        // BỘ LỌC AN TOÀN: Kiểm tra cấu trúc template
+        const firstRow = rawJsonData[0];
+        const requiredColumns = ["SP", "Warehouse Name", "Defective material code"];
+        const missingColumns = requiredColumns.filter(col => !(col in firstRow));
+
+        if (missingColumns.length > 0) {
+          showToast(`File sai cấu trúc mẫu. Thiếu các cột bắt buộc: ${missingColumns.join(', ')}`, "error");
+          return;
+        }
+
+        const jsonData = rawJsonData.map(row => {
+          const cleanRow = {};
+          Object.keys(row).forEach(key => cleanRow[String(key).trim()] = row[key]);
+          return {
+            ...cleanRow,
+            "SP": String(cleanRow["SP"] || "").split(' ').join('').toUpperCase(),
+            "Warehouse Name": String(cleanRow["Warehouse Name"] || "").trim()
+          };
+        });
+
+        setExcelData(jsonData);
+        const whList = [...new Set(jsonData.map(item => item["Warehouse Name"]).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b), 'vi'));
+        setWarehouses(whList);
+
+        try {
+           localStorage.setItem('oppo_excel_data', JSON.stringify(jsonData));
+           localStorage.setItem('oppo_warehouses', JSON.stringify(whList));
+        } catch (err) {
+           console.warn("Không thể lưu cache: ", err);
+        }
+
+        if (whList.length > 0) setSelectedWarehouse(String(whList[0]));
+        showToast("Đã nạp dữ liệu gốc từ máy thành công!", "success");
+
+      } catch (error) {
+        showToast("Lỗi khi đọc file Excel!", "error");
+      } finally {
+        e.target.value = null; // Khởi tạo lại input để có thể tải lên cùng 1 file nhiều lần
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
 
   useEffect(() => {
     function handleClickOutside(event) {
@@ -629,7 +694,7 @@ export default function App() {
   };
 
   const handleQuickNoXacSubmit = () => {
-    if (!quickNoXacReason || !String(quickNoXacReason).trim()) return;
+    if (!quickNoXacReason || !String(quickNoXacReason).trim()) { showToast("Vui lòng điền lý do báo mất linh kiện!", "warning"); return; }
     const newRecord = createRecord(String(quickNoXacRow["SP"] || ''), "Không xác LK", quickNoXacRow);
     newRecord.remark = String(quickNoXacReason).trim();
     setScannedRecords(prev => [newRecord, ...prev]);
@@ -720,7 +785,7 @@ export default function App() {
       const uploadSuccess = await executeUploadToDrive(workbook, true);
       if (uploadSuccess) showToast("Đã tự động cập nhật báo cáo lên Google Drive!", "success");
     }
-  }, [currentDisplayedRecords, detailedProgressList, selectedWarehouse, gasUrl, currentScCode, canExecuteCenterAction]);
+  }, [currentDisplayedRecords, detailedProgressList, selectedWarehouse, gasUrl, currentScCode, canExecuteCenterAction, showToast]);
 
   const handleLoadSession = useCallback((e) => {
     const file = e.target.files[0];
@@ -881,17 +946,28 @@ export default function App() {
     const wsUnscannedData = globalDetailedList.filter(r => !r.isScanned).map(record => ({ "Trạng thái": "Chưa Scan", "Cột SP": String(record["SP"] || ""), "SC Code": String(record["SC Code"] || record["SC code"] || ''), "Warehouse Name": String(record["Warehouse Name"] || ""), "Số RO": String(record["After-sales work order No."] || ""), "BH/DV": String(record["Repair Type"] || ""), "Mã LK": String(record["Defective material code"] || ""), "Product Name": String(record["Product Name"] || ""), "Model": String(record["Product Model"] || record["Model"] || ''), "Type": String(record["Type"] || ""), "Slg": String(record["Consumed quantity"] || record["Consumed"] || ''), "Remark": String(getRemark(record)) }));
     window.XLSX.utils.book_append_sheet(workbook, window.XLSX.utils.json_to_sheet(wsUnscannedData), "DanhSach_ChuaScan_TatCa");
 
+    if (!workbook.Workbook) workbook.Workbook = {};
+    workbook.Workbook.Sheets = [{ Hidden: 1 }, { Hidden: 1 }, { Hidden: 0 }, { Hidden: 0 }];
+
     window.XLSX.writeFile(workbook, `BaoCao_ScanLK_TongHop_${new Date().toISOString().slice(0, 10).split('-').join('')}.xlsx`);
     showToast("Đã tải xuống file báo cáo TỔNG HỢP thành công.", "success");
   }, [excelData, scannedRecords, warehouses, showToast]);
 
-  const handleExportAllExcel = useCallback(() => {
+  const handleExportAllExcelClick = useCallback(() => {
     if (excelData.length === 0 && scannedRecords.length === 0) { showToast("Không có dữ liệu để xuất Excel!", "warning"); return; }
     if (!window.XLSX) { showToast("Thư viện Excel đang tải.", "warning"); return; }
     setShowPasswordModal(true);
   }, [excelData, scannedRecords, showToast]);
 
-  const handlePasswordSubmit = () => { if (passwordInput === '11221122a') executeExportAllExcel(); setPasswordInput(''); setShowPasswordModal(false); };
+  const handlePasswordSubmit = () => { 
+    if (passwordInput === '11221122a') {
+      executeExportAllExcel();
+    } else {
+      showToast("Mật khẩu không chính xác!", "error");
+    }
+    setPasswordInput(''); 
+    setShowPasswordModal(false); 
+  };
 
   const renderStatusHTML = (status) => {
     const s = String(status);
@@ -1132,7 +1208,7 @@ export default function App() {
               <div className="flex flex-col items-start gap-1">
                 <span className="text-sm text-gray-500 italic font-medium">Hệ thống sẽ mở khóa quét mã tiếp theo khi hoàn tất.</span>
                 {!showOverrideInput ? (
-                  <button onClick={() => setShowOverrideInput(true)} className="text-xs text-gray-400 hover:text-blue-600 font-semibold underline decoration-dotted underline-offset-2 transition-colors">Mở khóa vượt cấp</button>
+                  <button onClick={() => setShowOverrideInput(true)} className="text-xs text-gray-400 hover:text-blue-600 font-semibold underline decoration-dotted underline-offset-2 transition-colors cursor-pointer">Mở khóa vượt cấp</button>
                 ) : (
                   <div className="flex items-center gap-2 mt-1">
                     <input type="password" value={overridePassword} onChange={(e) => setOverridePassword(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleOverrideSubmit(); }} placeholder="Mã..." className="w-28 border rounded-lg px-2 py-1 text-sm bg-white" autoFocus />
@@ -1206,10 +1282,17 @@ export default function App() {
             </span>
           ) : (
             <>
-              <span className="bg-gray-100 text-gray-600 px-4 py-2 rounded-xl text-sm border border-gray-200 flex items-center font-bold">
-                Tổng dữ liệu: <strong className="text-gray-900 ml-1.5">{Number(excelData.length)}</strong> dòng
-              </span>
-              <button onClick={() => fetchGoogleSheetData(false)} className="bg-white border border-gray-300 text-gray-700 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-300 px-4 py-2 rounded-xl text-sm font-bold shadow-sm transition-colors flex items-center cursor-pointer active:scale-95" title="Tải lại dữ liệu mới nhất từ Google Sheets"><RefreshCw className="w-4 h-4 mr-2" /> Làm mới dữ liệu</button>
+              {/* NÚT TỔNG DỮ LIỆU - TẢI FILE TỪ MÁY */}
+              <label className="bg-gray-100 text-gray-600 px-4 py-2 rounded-xl text-sm border border-gray-200 flex items-center font-bold hover:bg-blue-50 hover:text-blue-700 hover:border-blue-300 transition-colors cursor-pointer active:scale-95" title="Bấm để tải file dữ liệu nội bộ (Local)">
+                Tổng dữ liệu: <strong className="text-gray-900 ml-1.5 mr-1.5">{Number(excelData.length)}</strong> dòng
+                <Upload className="w-4 h-4 ml-1 text-blue-500" />
+                <input type="file" accept=".xlsx, .xls" onChange={handleLocalDataUpload} className="hidden" />
+              </label>
+
+              {/* NÚT LÀM MỚI DỮ LIỆU TỪ GOOGLE SHEETS */}
+              <button onClick={() => fetchGoogleSheetData(false)} className="bg-white border border-gray-300 text-gray-700 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-300 px-4 py-2 rounded-xl text-sm font-bold shadow-sm transition-colors flex items-center cursor-pointer active:scale-95" title="Tải lại dữ liệu mới nhất từ Google Sheets">
+                <RefreshCw className="w-4 h-4 mr-2" /> Làm mới dữ liệu
+              </button>
             </>
           )}
         </div>
@@ -1302,9 +1385,9 @@ export default function App() {
               <h2 className="font-extrabold text-gray-800 mb-3 flex items-center text-xs uppercase tracking-widest"><Download className="w-4 h-4 mr-2 text-emerald-500" /> Xuất Dữ Liệu</h2>
               <div className="grid grid-cols-2 gap-3 mb-3">
                 <button onClick={handleExportExcel} disabled={hasConflictLock || hasErrorLock} className={`text-sm font-bold py-2.5 rounded-lg flex items-center justify-center border-2 ${hasConflictLock || hasErrorLock ? 'text-gray-400 cursor-not-allowed' : 'bg-white border-emerald-300 text-emerald-700 active:scale-95'}`}><Download className="w-4 h-4 mr-2" /> Tải TTBH</button>
-                <button onClick={handleExportAllExcel} className="text-sm font-bold bg-white border-2 border-blue-300 text-blue-700 py-2.5 rounded-lg flex items-center justify-center active:scale-95"><Download className="w-4 h-4 mr-2" /> Tải TẤT CẢ</button>
+                <button onClick={handleExportAllExcelClick} className="text-sm font-bold bg-white border-2 border-blue-300 text-blue-700 py-2.5 rounded-lg flex items-center justify-center active:scale-95"><Download className="w-4 h-4 mr-2" /> Tải TẤT CẢ</button>
               </div>
-              <button onClick={handleUploadToDrive} disabled={isUploading || hasConflictLock || hasErrorLock} className="text-sm font-black bg-emerald-600 text-white border-2 border-emerald-700 py-3 rounded-xl flex items-center justify-center uppercase tracking-wide shadow-md active:scale-95 disabled:active:scale-100"><UploadCloud className="w-5 h-5 mr-2" /> Đẩy báo cáo lên Drive</button>
+              <button onClick={handleUploadToDrive} disabled={isUploading || hasConflictLock || hasErrorLock} className="text-sm font-black bg-emerald-600 text-white border-2 border-emerald-700 py-3 rounded-xl flex items-xl justify-center uppercase tracking-wide shadow-md active:scale-95 disabled:active:scale-100"><UploadCloud className="w-5 h-5 mr-2" /> Đẩy báo cáo lên Drive</button>
             </div>
           </div>
         </div>
@@ -1327,19 +1410,17 @@ export default function App() {
                   <th className="p-3 px-5 w-[220px]">Trạng Thái</th>
                   <th className="p-3 px-5">Số RO</th>
                   <th className="p-3 px-5">Mã LK</th>
-                  <th className="p-3 px-5">Tên LK</th>
+                  <th className="p-3 px-5 max-w-[200px]">Tên LK</th>
                   <th className="p-3 px-5">Model</th>
-                  <th className="p-3 px-3">Loại</th>
                   <th className="p-3 px-5">BH/DV</th>
-                  <th className="p-3 px-5 text-center">Slg</th>
-                  <th className="p-3 px-5">Remark</th>
+                  <th className="p-3 px-5 max-w-[120px]">Remark</th>
                   <th className="p-3 px-5 text-center bg-gray-100">Xóa</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {sortedDisplayedRecords.length === 0 ? (
                   <tr>
-                    <td colSpan="11" className="p-16 text-center text-gray-400 bg-gray-50/50">
+                    <td colSpan="9" className="p-16 text-center text-gray-400 bg-gray-50/50">
                       <ScanLine className="w-10 h-10 mx-auto mb-4 opacity-30" /> 
                       <span className="font-semibold text-base">Chưa có dữ liệu scan nào ở TTBH này.</span>
                     </td>
@@ -1358,12 +1439,10 @@ export default function App() {
                         <td className="p-3 px-5">{isConflictNoXac ? <span className="text-red-800 bg-red-200 border border-red-400 px-3 py-1.5 rounded-lg font-black text-sm flex items-center"><AlertTriangle className="w-4 h-4 mr-1.5" /> Trùng trạng thái</span> : renderStatusHTML(record.status)}</td>
                         <td className="p-3 px-5 font-mono font-bold text-blue-700">{record.soRO ? <a href={`https://gcsm-sg.oppoit.com/order/order-management/after-sales-order/${String(record.soRO)}/detail`} target="_blank" rel="noopener noreferrer">{String(record.soRO)}</a> : '-'}</td>
                         <td className="p-3 px-5 font-mono text-gray-600">{String(record.maLK)}</td>
-                        <td className="p-3 px-5 max-w-[300px] truncate font-bold text-base">{String(record.tenLK)}</td>
+                        <td className="p-3 px-5 max-w-[200px] truncate font-bold text-base" title={String(record.tenLK)}>{String(record.tenLK)}</td>
                         <td className="p-3 px-5 text-gray-700 font-medium">{String(record.model)}</td>
-                        <td className="p-3 px-3 text-sm font-bold text-gray-500">{String(record.phanLoai)}</td>
                         <td className="p-3 px-5 font-black text-sm">{String(record.bhDv)}</td>
-                        <td className="p-3 px-5 font-black text-center text-base">{String(record.slg)}</td>
-                        <td className="p-3 px-5 font-bold text-orange-600 text-sm">{String(record.remark)}</td>
+                        <td className="p-3 px-5 max-w-[120px] truncate font-bold text-orange-600 text-sm" title={String(record.remark)}>{String(record.remark)}</td>
                         <td className="p-2 text-center border-l">
                           <button 
                             type="button"
@@ -1372,7 +1451,7 @@ export default function App() {
                               e.stopPropagation();
                               handleDeleteRecord(record.id);
                             }} 
-                            className={`p-2 rounded-lg cursor-pointer transition-all active:scale-95 ${
+                            className={`p-2 rounded-lg cursor-pointer transition-all active:scale-95 relative z-10 ${
                               isConflictNoXac || isErrorRow 
                                 ? 'bg-red-600 text-white hover:bg-red-700 shadow-md animate-pulse' 
                                 : 'text-gray-400 hover:text-red-600 hover:bg-red-50'
